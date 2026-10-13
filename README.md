@@ -2,6 +2,14 @@
 
 A small Android app for logging what you spend and seeing totals per day and per month, with a home-screen widget.
 
+**Auto-add payments** (More > Auto-add payments)
+- Reads the payment notification from the wallet and bank apps you choose (Google Wallet and Samsung Wallet are picked automatically if installed) and adds the amount for you, with the shop name as the note
+- Guesses the category from the shop name, otherwise uses the one you set
+- Skips refunds, deposits, declined payments, balances and bill reminders
+- The same amount seen twice within two minutes is added once, so a wallet and a bank app do not double up
+- Optional "Added $x" notification with an Undo button; a list of recent alerts shows what was read or skipped
+- Needs Notification access. For an app installed from a file on Android 13 or newer, first open App info, tap the three dots, and choose Allow restricted settings
+
 **Logging**
 - Add an expense: amount, category, date, optional note
 - Tap an entry to edit it; press and hold to remove it
@@ -11,7 +19,8 @@ A small Android app for logging what you spend and seeing totals per day and per
 **Budgets**
 - Monthly budget with a progress bar and what is left
 - Daily allowance: what is left divided by the days remaining
-- Per-category limits with amber and red warnings
+- Per-category limits; the bars turn from green through amber to red as they fill
+- The budget bar, the app's theme color and the widget shift toward amber and then red as you near your monthly budget (can be turned off under More > Reminder, lock & colors)
 - Savings goals with progress
 
 **Seeing your spending**

@@ -15,7 +15,7 @@ public class SettingsActivity extends BaseActivity {
 
     @Override
     String screenTitle() {
-        return "Reminder & app lock";
+        return "Reminder, lock & colors";
     }
 
     @Override
@@ -59,6 +59,22 @@ public class SettingsActivity extends BaseActivity {
             render();
         });
         Ui.add(body, rem, 12);
+
+        // Color shift
+        LinearLayout tint = Ui.card(this);
+        LinearLayout tintRow = new LinearLayout(this);
+        tintRow.setOrientation(LinearLayout.HORIZONTAL);
+        Ui.grow(tintRow, Ui.text(this, "Colors shift with your budget", 16, text, true));
+        final Switch tintSwitch = new Switch(this);
+        tintSwitch.setChecked(AppSettings.tintOn(this));
+        tintRow.addView(tintSwitch);
+        tint.addView(tintRow);
+        tint.addView(Ui.text(this, "Once half of your monthly budget is spent, the app's theme color and the widget slowly turn amber, then red as you reach it. The budget bar always changes color. This needs a monthly budget (More, then Budgets).", 13, sub, false));
+        tintSwitch.setOnCheckedChangeListener((b, on) -> {
+            AppSettings.setTint(this, on);
+            SpendWidget.updateAll(this);
+        });
+        Ui.add(body, tint, 12);
 
         // App lock
         LinearLayout lock = Ui.card(this);

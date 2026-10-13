@@ -93,11 +93,16 @@ public class SpendWidget extends AppWidgetProvider {
             } else {
                 line = "Over budget by " + Money.fmt(-left);
             }
+            float ratio = (float) month / budget;
+            int shade = BudgetColor.gradient(ratio, Palette.isNight(c));
             rv.setTextViewText(R.id.w_budget, line);
-            rv.setTextColor(R.id.w_budget, left < 0 ? c.getColor(R.color.danger) : c.getColor(R.color.subtext));
+            rv.setTextColor(R.id.w_budget, ratio >= 0.5f ? shade : c.getColor(R.color.subtext));
             rv.setViewVisibility(R.id.w_budget, View.VISIBLE);
+            rv.setImageViewBitmap(R.id.w_budget_bar, budgetBar(c, ratio, shade));
+            rv.setViewVisibility(R.id.w_budget_bar, View.VISIBLE);
         } else {
             rv.setViewVisibility(R.id.w_budget, View.GONE);
+            rv.setViewVisibility(R.id.w_budget_bar, View.GONE);
         }
 
         int flags = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
@@ -141,6 +146,24 @@ public class SpendWidget extends AppWidgetProvider {
             }
         }
         return rv;
+    }
+
+    private static Bitmap budgetBar(Context c, float ratio, int fill) {
+        final int w = 600;
+        final int h = 12;
+        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bmp);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        RectF r = new RectF(0, 0, w, h);
+        p.setColor(c.getColor(R.color.line));
+        canvas.drawRoundRect(r, h / 2f, h / 2f, p);
+        float frac = Math.max(0f, Math.min(1f, ratio));
+        if (frac > 0f) {
+            p.setColor(fill);
+            r.set(0, 0, Math.max(h, w * frac), h);
+            canvas.drawRoundRect(r, h / 2f, h / 2f, p);
+        }
+        return bmp;
     }
 
     private static Bitmap bars(Context c, Map<String, Long> byDate, int accent) {

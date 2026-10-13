@@ -25,8 +25,14 @@ final class Palette {
         return mode == Configuration.UI_MODE_NIGHT_YES;
     }
 
-    static int accent(Context c) {
+    /** The color of the chosen theme, before any budget color shift. */
+    static int base(Context c) {
         int i = index(c);
         return isNight(c) ? DARK[i] : LIGHT[i];
+    }
+
+    /** The theme color, shifted toward amber and red as this month's budget fills up. */
+    static int accent(Context c) {
+        return BudgetColor.tint(c, base(c));
     }
 }

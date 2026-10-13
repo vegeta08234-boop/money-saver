@@ -59,6 +59,15 @@
         android:visibility="gone" />
 
     <ImageView
+        android:id="@+id/w_budget_bar"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginTop="4dp"
+        android:contentDescription="Budget used"
+        android:scaleType="fitXY"
+        android:visibility="gone" />
+
+    <ImageView
         android:id="@+id/w_bars"
         android:layout_width="match_parent"
         android:layout_height="0dp"

@@ -157,6 +157,7 @@ public class MainActivity extends Activity {
         applyTheme();
         Recurring.process(this);
         Reminder.schedule(this);
+        PaymentListener.rebindIfNeeded(this);
         fillSpinners();
         refresh();
     }
@@ -251,21 +252,24 @@ public class MainActivity extends Activity {
     }
 
     private void showMore() {
-        final String[] items = {"Budgets", "Categories", "Recurring expenses", "Savings goals", "Reminder & app lock"};
+        final String[] items = {"Auto-add payments", "Budgets", "Categories", "Recurring expenses", "Savings goals", "Reminder, lock & colors"};
         new AlertDialog.Builder(this)
                 .setItems(items, (d, which) -> {
                     Class<?> target;
                     switch (which) {
                         case 0:
-                            target = BudgetActivity.class;
+                            target = PaymentsActivity.class;
                             break;
                         case 1:
-                            target = CategoriesActivity.class;
+                            target = BudgetActivity.class;
                             break;
                         case 2:
-                            target = RecurringActivity.class;
+                            target = CategoriesActivity.class;
                             break;
                         case 3:
+                            target = RecurringActivity.class;
+                            break;
+                        case 4:
                             target = GoalsActivity.class;
                             break;
                         default:
@@ -323,6 +327,7 @@ public class MainActivity extends Activity {
     /* ---------- screen ---------- */
 
     private void refresh() {
+        applyTheme();
         allCache = ExpenseStore.load(this);
         statsCache = Stats.compute(allCache, viewMonth);
         Stats s = statsCache;
@@ -362,7 +367,7 @@ public class MainActivity extends Activity {
         }
         long left = budget - s.monthTotal;
         float frac = budget > 0 ? (float) s.monthTotal / budget : 0f;
-        int color = s.monthTotal >= budget ? getColor(R.color.danger) : (frac >= 0.8f ? AMBER : accent);
+        int color = BudgetColor.gradient(frac, Palette.isNight(this));
         Ui.addProgress(budgetBox, frac, color);
 
         String line = left >= 0
@@ -433,11 +438,7 @@ public class MainActivity extends Activity {
             int barColor = color;
             if (limit > 0) {
                 frac = (float) spent / limit;
-                if (spent >= limit) {
-                    barColor = getColor(R.color.danger);
-                } else if (frac >= 0.8f) {
-                    barColor = AMBER;
-                }
+                barColor = BudgetColor.gradient(frac, Palette.isNight(this));
             } else {
                 frac = (float) spent / max;
             }
@@ -590,6 +591,7 @@ public class MainActivity extends Activity {
         }
 
         List<Categories.Cat> known = Categories.load(this);
+        java.util.Set<Long> autos = AutoLog.autoIds(this);
         String lastDate = null;
         for (final Expense e : shown) {
             if (!e.date.equals(lastDate)) {
@@ -612,7 +614,7 @@ public class MainActivity extends Activity {
 
             LinearLayout left = new LinearLayout(this);
             left.setOrientation(LinearLayout.VERTICAL);
-            left.addView(text(e.cat, 15, getColor(R.color.text), false));
+            left.addView(text(e.cat + (autos.contains(e.id) ? "  \u00B7  auto" : ""), 15, getColor(R.color.text), false));
             if (!e.note.isEmpty()) {
                 left.addView(text(e.note, 13, getColor(R.color.subtext), false));
             }
