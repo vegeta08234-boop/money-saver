@@ -10,15 +10,25 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.view.View;
 import android.widget.RemoteViews;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 public class SpendWidget extends AppWidgetProvider {
+
+    private static final int[] CHIP_IDS = {R.id.w_c1, R.id.w_c2, R.id.w_c3, R.id.w_c4};
 
     @Override
     public void onUpdate(Context context, AppWidgetManager manager, int[] ids) {
@@ -47,6 +57,7 @@ public class SpendWidget extends AppWidgetProvider {
     }
 
     private static RemoteViews build(Context c) {
+        Recurring.process(c);
         List<Expense> all = ExpenseStore.load(c);
         Map<String, Long> byDate = Stats.sumByDate(all);
         Calendar now = Calendar.getInstance();
@@ -69,6 +80,26 @@ public class SpendWidget extends AppWidgetProvider {
         rv.setTextColor(R.id.w_add, accent);
         rv.setImageViewBitmap(R.id.w_bars, bars(c, byDate, accent));
 
+        // Budget line
+        long budget = Budgets.monthly(c);
+        if (budget > 0) {
+            long left = budget - month;
+            String line;
+            if (left >= 0) {
+                line = Money.fmt(left) + " left";
+                if (left > 0) {
+                    line += " · " + Money.fmt(left / Math.max(1, Stats.daysLeftInMonth())) + " a day";
+                }
+            } else {
+                line = "Over budget by " + Money.fmt(-left);
+            }
+            rv.setTextViewText(R.id.w_budget, line);
+            rv.setTextColor(R.id.w_budget, left < 0 ? c.getColor(R.color.danger) : c.getColor(R.color.subtext));
+            rv.setViewVisibility(R.id.w_budget, View.VISIBLE);
+        } else {
+            rv.setViewVisibility(R.id.w_budget, View.GONE);
+        }
+
         int flags = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
         Intent open = new Intent(c, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -78,6 +109,37 @@ public class SpendWidget extends AppWidgetProvider {
         add.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         add.putExtra("focus_add", true);
         rv.setOnClickPendingIntent(R.id.w_add, PendingIntent.getActivity(c, 2, add, flags));
+
+        // Quick-add chips: the four most used categories
+        final Map<String, Integer> use = new HashMap<>();
+        for (Expense e : all) {
+            Integer n = use.get(e.cat);
+            use.put(e.cat, n == null ? 1 : n + 1);
+        }
+        List<Categories.Cat> order = new ArrayList<>(Categories.load(c));
+        Collections.sort(order, new Comparator<Categories.Cat>() {
+            @Override
+            public int compare(Categories.Cat x, Categories.Cat y) {
+                Integer a = use.get(x.name);
+                Integer b = use.get(y.name);
+                return (b == null ? 0 : b) - (a == null ? 0 : a);
+            }
+        });
+        for (int i = 0; i < CHIP_IDS.length; i++) {
+            if (i < order.size()) {
+                Categories.Cat k = order.get(i);
+                SpannableString label = new SpannableString("● " + k.name);
+                label.setSpan(new ForegroundColorSpan(k.color), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                rv.setTextViewText(CHIP_IDS[i], label);
+                rv.setViewVisibility(CHIP_IDS[i], View.VISIBLE);
+                Intent quick = new Intent(c, QuickAddActivity.class);
+                quick.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                quick.putExtra("cat", k.name);
+                rv.setOnClickPendingIntent(CHIP_IDS[i], PendingIntent.getActivity(c, 20 + i, quick, flags));
+            } else {
+                rv.setViewVisibility(CHIP_IDS[i], View.GONE);
+            }
+        }
         return rv;
     }
 

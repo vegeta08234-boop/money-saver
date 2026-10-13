@@ -2,15 +2,17 @@ package com.spendlog.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.DatePickerDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -20,23 +22,24 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class MainActivity extends Activity {
 
-    private static final String[] CATEGORIES = {
-            "Food", "Groceries", "Transport", "Bills", "Shopping", "Fun", "Health", "Other"
-    };
+    private static final int AMBER = 0xFFF59E0B;
 
     private Calendar viewMonth = Dates.firstOfMonth(Calendar.getInstance());
     private String chosenDate = Dates.today();
+
+    private List<Expense> allCache = new ArrayList<>();
+    private Stats statsCache;
 
     private ScrollView scroll;
     private View addCard;
@@ -46,6 +49,7 @@ public class MainActivity extends Activity {
     private Button dateBtn;
     private Button addBtn;
     private TextView themeBtn;
+    private TextView moreBtn;
     private TextView prev;
     private TextView next;
     private TextView monthLabel;
@@ -54,9 +58,16 @@ public class MainActivity extends Activity {
     private TextView avgV;
     private TextView vsV;
     private TextView emptyV;
+    private TextView filterInfo;
     private BarChartView chart;
+    private LinearLayout budgetBox;
     private LinearLayout cats;
+    private LinearLayout topBox;
     private LinearLayout entries;
+    private EditText search;
+    private Spinner filterCat;
+    private EditText minAmt;
+    private EditText maxAmt;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,6 +82,7 @@ public class MainActivity extends Activity {
         dateBtn = findViewById(R.id.date_btn);
         addBtn = findViewById(R.id.add_btn);
         themeBtn = findViewById(R.id.theme_btn);
+        moreBtn = findViewById(R.id.more_btn);
         prev = findViewById(R.id.prev);
         next = findViewById(R.id.next);
         monthLabel = findViewById(R.id.month_label);
@@ -79,21 +91,54 @@ public class MainActivity extends Activity {
         avgV = findViewById(R.id.avg_v);
         vsV = findViewById(R.id.vs_v);
         emptyV = findViewById(R.id.empty_v);
+        filterInfo = findViewById(R.id.filter_info);
         chart = findViewById(R.id.chart);
+        budgetBox = findViewById(R.id.budget_box);
         cats = findViewById(R.id.cats);
+        topBox = findViewById(R.id.top_box);
         entries = findViewById(R.id.entries);
+        search = findViewById(R.id.search);
+        filterCat = findViewById(R.id.filter_cat);
+        minAmt = findViewById(R.id.min_amt);
+        maxAmt = findViewById(R.id.max_amt);
 
-        ArrayAdapter<String> adapter =
-                new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, CATEGORIES);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        category.setAdapter(adapter);
+        fillSpinners();
 
         updateDateBtn();
         dateBtn.setOnClickListener(v -> pickDate());
         addBtn.setOnClickListener(v -> addExpense());
         themeBtn.setOnClickListener(v -> pickTheme());
+        moreBtn.setOnClickListener(v -> showMore());
         prev.setOnClickListener(v -> shiftMonth(-1));
         next.setOnClickListener(v -> shiftMonth(1));
+
+        TextWatcher watcher = new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                rebuildEntries();
+            }
+        };
+        search.addTextChangedListener(watcher);
+        minAmt.addTextChangedListener(watcher);
+        maxAmt.addTextChangedListener(watcher);
+        filterCat.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                rebuildEntries();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
 
         handleIntent(getIntent());
     }
@@ -108,8 +153,24 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Lock.guard(this);
         applyTheme();
+        Recurring.process(this);
+        Reminder.schedule(this);
+        fillSpinners();
         refresh();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        Lock.paused();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        Lock.handleResult(this, requestCode, resultCode);
     }
 
     private void handleIntent(Intent intent) {
@@ -129,20 +190,43 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* ---------- spinners ---------- */
+
+    private void fillSpinners() {
+        List<String> names = Categories.names(this);
+
+        String keepAdd = category.getSelectedItem() == null ? null : (String) category.getSelectedItem();
+        ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
+        a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        category.setAdapter(a);
+        if (keepAdd != null && names.indexOf(keepAdd) >= 0) {
+            category.setSelection(names.indexOf(keepAdd));
+        }
+
+        String keepFilter = filterCat.getSelectedItemPosition() > 0 ? (String) filterCat.getSelectedItem() : null;
+        List<String> f = new ArrayList<>();
+        f.add("All categories");
+        f.addAll(names);
+        ArrayAdapter<String> fa = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, f);
+        fa.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        filterCat.setAdapter(fa);
+        if (keepFilter != null && f.indexOf(keepFilter) >= 0) {
+            filterCat.setSelection(f.indexOf(keepFilter));
+        }
+    }
+
+    /* ---------- actions ---------- */
+
     private void shiftMonth(int delta) {
         viewMonth.add(Calendar.MONTH, delta);
         refresh();
     }
 
     private void pickDate() {
-        Calendar c = Dates.parse(chosenDate);
-        new DatePickerDialog(this, (picker, y, m, d) -> {
-            Calendar n = Calendar.getInstance();
-            n.clear();
-            n.set(y, m, d, 12, 0, 0);
-            chosenDate = Dates.key(n);
+        Ui.pickDate(this, chosenDate, date -> {
+            chosenDate = date;
             updateDateBtn();
-        }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show();
+        });
     }
 
     private void updateDateBtn() {
@@ -166,27 +250,44 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private long parseCents(String s) {
-        try {
-            String t = s.trim().replace(",", ".");
-            if (t.isEmpty()) {
-                return -1;
-            }
-            BigDecimal b = new BigDecimal(t);
-            return b.multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).longValueExact();
-        } catch (Exception e) {
-            return -1;
-        }
+    private void showMore() {
+        final String[] items = {"Budgets", "Categories", "Recurring expenses", "Savings goals", "Reminder & app lock"};
+        new AlertDialog.Builder(this)
+                .setItems(items, (d, which) -> {
+                    Class<?> target;
+                    switch (which) {
+                        case 0:
+                            target = BudgetActivity.class;
+                            break;
+                        case 1:
+                            target = CategoriesActivity.class;
+                            break;
+                        case 2:
+                            target = RecurringActivity.class;
+                            break;
+                        case 3:
+                            target = GoalsActivity.class;
+                            break;
+                        default:
+                            target = SettingsActivity.class;
+                            break;
+                    }
+                    startActivity(new Intent(this, target));
+                })
+                .show();
     }
 
     private void addExpense() {
-        long cents = parseCents(amount.getText().toString());
+        long cents = Ui.parseCents(amount.getText());
         if (cents <= 0) {
             Toast.makeText(this, "Enter an amount greater than zero", Toast.LENGTH_SHORT).show();
             amount.requestFocus();
             return;
         }
-        String cat = CATEGORIES[category.getSelectedItemPosition()];
+        String cat = (String) category.getSelectedItem();
+        if (cat == null) {
+            return;
+        }
         Expense e = new Expense(System.currentTimeMillis(), cents, cat, chosenDate,
                 note.getText().toString().trim());
         ExpenseStore.add(this, e);
@@ -213,15 +314,18 @@ public class MainActivity extends Activity {
         addBtn.setBackground(g);
         addBtn.setTextColor(Color.WHITE);
         themeBtn.setTextColor(a);
+        moreBtn.setTextColor(a);
         prev.setTextColor(a);
         next.setTextColor(a);
         chart.setColors(a, getColor(R.color.subtext), getColor(R.color.line));
     }
 
+    /* ---------- screen ---------- */
+
     private void refresh() {
-        List<Expense> all = ExpenseStore.load(this);
-        Stats s = Stats.compute(all, viewMonth);
-        int accent = Palette.accent(this);
+        allCache = ExpenseStore.load(this);
+        statsCache = Stats.compute(allCache, viewMonth);
+        Stats s = statsCache;
         String ym = Dates.ym(viewMonth);
 
         monthLabel.setText(Dates.monthLabel(viewMonth));
@@ -239,13 +343,55 @@ public class MainActivity extends Activity {
         int highlight = Dates.ym(now).equals(ym) ? now.get(Calendar.DAY_OF_MONTH) - 1 : -1;
         chart.setData(s.byDay, highlight);
 
-        buildCategories(s, accent);
-        buildEntries(all, s, ym);
+        buildBudget(s, ym);
+        buildCategories(s);
+        buildTop(s);
+        rebuildEntries();
     }
 
-    private void buildCategories(Stats s, int accent) {
+    private void buildBudget(Stats s, String ym) {
+        budgetBox.removeAllViews();
+        int accent = Palette.accent(this);
+        long budget = Budgets.monthly(this);
+        View.OnClickListener open = v -> startActivity(new Intent(this, BudgetActivity.class));
+        if (budget <= 0) {
+            TextView t = text("Set a monthly budget ›", 14, accent, true);
+            t.setOnClickListener(open);
+            budgetBox.addView(t);
+            return;
+        }
+        long left = budget - s.monthTotal;
+        float frac = budget > 0 ? (float) s.monthTotal / budget : 0f;
+        int color = s.monthTotal >= budget ? getColor(R.color.danger) : (frac >= 0.8f ? AMBER : accent);
+        Ui.addProgress(budgetBox, frac, color);
+
+        String line = left >= 0
+                ? Money.fmt(left) + " left of " + Money.fmt(budget)
+                : "Over budget by " + Money.fmt(-left);
+        TextView l = text(line, 14, left >= 0 ? getColor(R.color.text) : getColor(R.color.danger), true);
+        l.setPadding(0, dp(6), 0, 0);
+        budgetBox.addView(l);
+
+        boolean current = Dates.ym(Calendar.getInstance()).equals(ym);
+        if (current && left > 0) {
+            int days = Stats.daysLeftInMonth();
+            TextView d = text("About " + Money.fmt(left / Math.max(1, days)) + " a day for the next "
+                    + days + (days == 1 ? " day" : " days"), 13, getColor(R.color.subtext), false);
+            budgetBox.addView(d);
+        }
+        budgetBox.setOnClickListener(open);
+    }
+
+    private void buildCategories(Stats s) {
         cats.removeAllViews();
-        List<Map.Entry<String, Long>> rows = new ArrayList<>(s.byCategory.entrySet());
+        List<Categories.Cat> known = Categories.load(this);
+        Map<String, Long> totals = new HashMap<>(s.byCategory);
+        for (Categories.Cat k : known) {
+            if (!totals.containsKey(k.name) && Budgets.forCat(this, k.name) > 0) {
+                totals.put(k.name, 0L);
+            }
+        }
+        List<Map.Entry<String, Long>> rows = new ArrayList<>(totals.entrySet());
         Collections.sort(rows, new Comparator<Map.Entry<String, Long>>() {
             @Override
             public int compare(Map.Entry<String, Long> x, Map.Entry<String, Long> y) {
@@ -256,47 +402,180 @@ public class MainActivity extends Activity {
             cats.addView(text("No spending yet.", 14, getColor(R.color.subtext), false));
             return;
         }
-        long max = Math.max(1, rows.get(0).getValue());
+        long max = 1;
         for (Map.Entry<String, Long> r : rows) {
+            max = Math.max(max, r.getValue());
+        }
+        for (Map.Entry<String, Long> r : rows) {
+            long spent = r.getValue();
+            long limit = Budgets.forCat(this, r.getKey());
+            int color = Categories.colorOf(known, r.getKey());
+
             LinearLayout block = new LinearLayout(this);
             block.setOrientation(LinearLayout.VERTICAL);
             block.setPadding(0, dp(8), 0, 0);
 
             LinearLayout top = new LinearLayout(this);
             top.setOrientation(LinearLayout.HORIZONTAL);
-            TextView name = text(r.getKey(), 14, getColor(R.color.text), false);
-            top.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            top.addView(text(Money.fmt(r.getValue()), 14, getColor(R.color.text), true));
+            top.setGravity(Gravity.CENTER_VERTICAL);
+            top.addView(Ui.dot(this, color, 10));
+            top.addView(text(r.getKey(), 14, getColor(R.color.text), false),
+                    new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            String amt = limit > 0 ? Money.fmt(spent) + " of " + Money.fmt(limit) : Money.fmt(spent);
+            int amtColor = getColor(R.color.text);
+            if (limit > 0 && spent >= limit) {
+                amtColor = getColor(R.color.danger);
+            }
+            top.addView(text(amt, 14, amtColor, true));
             block.addView(top);
 
-            LinearLayout bar = new LinearLayout(this);
-            bar.setOrientation(LinearLayout.HORIZONTAL);
-            bar.setWeightSum(1000f);
-            float frac = Math.max(0.02f, (float) r.getValue() / max);
-            View fill = new View(this);
-            GradientDrawable gf = new GradientDrawable();
-            gf.setColor(accent);
-            gf.setCornerRadius(dp(3));
-            fill.setBackground(gf);
-            bar.addView(fill, new LinearLayout.LayoutParams(0, dp(6), frac * 1000f));
-            LinearLayout.LayoutParams bp =
-                    new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(6));
-            bp.topMargin = dp(4);
-            block.addView(bar, bp);
+            float frac;
+            int barColor = color;
+            if (limit > 0) {
+                frac = (float) spent / limit;
+                if (spent >= limit) {
+                    barColor = getColor(R.color.danger);
+                } else if (frac >= 0.8f) {
+                    barColor = AMBER;
+                }
+            } else {
+                frac = (float) spent / max;
+            }
+            Ui.addProgress(block, spent > 0 ? Math.max(0.02f, frac) : 0f, barColor);
+            if (limit > 0 && spent >= limit) {
+                block.addView(text("Over the limit by " + Money.fmt(spent - limit), 12, getColor(R.color.danger), false));
+            } else if (limit > 0 && frac >= 0.8f) {
+                block.addView(text(Money.fmt(limit - spent) + " left before the limit", 12, AMBER, false));
+            }
             cats.addView(block);
         }
     }
 
-    private void buildEntries(List<Expense> all, Stats s, String ym) {
-        entries.removeAllViews();
-        List<Expense> month = new ArrayList<>();
-        for (Expense e : all) {
-            if (e.date.startsWith(ym)) {
-                month.add(e);
-            }
+    private LinearLayout twoCol(String left, String right, String sub) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(4), 0, dp(4));
+        LinearLayout line = new LinearLayout(this);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        line.addView(text(left, 14, getColor(R.color.text), false),
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        line.addView(text(right, 14, getColor(R.color.text), true));
+        row.addView(line);
+        if (sub != null) {
+            row.addView(text(sub, 12, getColor(R.color.subtext), false));
         }
-        emptyV.setVisibility(month.isEmpty() ? View.VISIBLE : View.GONE);
-        Collections.sort(month, new Comparator<Expense>() {
+        return row;
+    }
+
+    private TextView label(String s) {
+        TextView t = text(s, 12, getColor(R.color.subtext), true);
+        t.setPadding(0, dp(10), 0, dp(2));
+        return t;
+    }
+
+    private void buildTop(Stats s) {
+        topBox.removeAllViews();
+        if (s.count == 0) {
+            topBox.addView(text("Nothing to summarize yet.", 14, getColor(R.color.subtext), false));
+            return;
+        }
+        Comparator<Map.Entry<String, Long>> desc = new Comparator<Map.Entry<String, Long>>() {
+            @Override
+            public int compare(Map.Entry<String, Long> x, Map.Entry<String, Long> y) {
+                return Long.compare(y.getValue(), x.getValue());
+            }
+        };
+
+        topBox.addView(label("BIGGEST DAYS"));
+        List<Map.Entry<String, Long>> days = new ArrayList<>(s.byDate.entrySet());
+        Collections.sort(days, desc);
+        for (int i = 0; i < Math.min(3, days.size()); i++) {
+            topBox.addView(twoCol(Dates.dayLabel(days.get(i).getKey()), Money.fmt(days.get(i).getValue()), null));
+        }
+
+        topBox.addView(label("TOP CATEGORIES"));
+        List<Map.Entry<String, Long>> cs = new ArrayList<>(s.byCategory.entrySet());
+        Collections.sort(cs, desc);
+        for (int i = 0; i < Math.min(3, cs.size()); i++) {
+            long v = cs.get(i).getValue();
+            long pct = s.monthTotal > 0 ? Math.round(v * 100.0 / s.monthTotal) : 0;
+            topBox.addView(twoCol(cs.get(i).getKey(), Money.fmt(v), pct + "% of the month"));
+        }
+
+        if (s.biggest != null) {
+            topBox.addView(label("BIGGEST PURCHASE"));
+            String name = s.biggest.cat + (s.biggest.note.isEmpty() ? "" : " · " + s.biggest.note);
+            topBox.addView(twoCol(name, Money.fmt(s.biggest.cents), Dates.dayLabel(s.biggest.date)));
+        }
+    }
+
+    private void rebuildEntries() {
+        if (statsCache == null) {
+            return;
+        }
+        buildEntries();
+    }
+
+    private boolean filtersActive() {
+        return filterCat.getSelectedItemPosition() > 0
+                || !search.getText().toString().trim().isEmpty()
+                || Ui.parseCents(minAmt.getText()) >= 0
+                || Ui.parseCents(maxAmt.getText()) >= 0;
+    }
+
+    private void buildEntries() {
+        entries.removeAllViews();
+        String ym = Dates.ym(viewMonth);
+
+        String q = search.getText().toString().trim().toLowerCase(Locale.getDefault());
+        String fc = filterCat.getSelectedItemPosition() > 0 ? (String) filterCat.getSelectedItem() : null;
+        long min = Ui.parseCents(minAmt.getText());
+        long max = Ui.parseCents(maxAmt.getText());
+
+        int inMonth = 0;
+        List<Expense> shown = new ArrayList<>();
+        for (Expense e : allCache) {
+            if (!e.date.startsWith(ym)) {
+                continue;
+            }
+            inMonth++;
+            if (fc != null && !e.cat.equals(fc)) {
+                continue;
+            }
+            if (min >= 0 && e.cents < min) {
+                continue;
+            }
+            if (max >= 0 && e.cents > max) {
+                continue;
+            }
+            if (!q.isEmpty()) {
+                String amt = String.format(Locale.US, "%.2f", e.cents / 100.0);
+                boolean hit = e.note.toLowerCase(Locale.getDefault()).contains(q)
+                        || e.cat.toLowerCase(Locale.getDefault()).contains(q)
+                        || amt.contains(q);
+                if (!hit) {
+                    continue;
+                }
+            }
+            shown.add(e);
+        }
+
+        boolean active = filtersActive();
+        if (active && inMonth > 0) {
+            long sum = 0;
+            for (Expense e : shown) {
+                sum += e.cents;
+            }
+            filterInfo.setText("Showing " + shown.size() + " of " + inMonth + " · " + Money.fmt(sum));
+            filterInfo.setVisibility(View.VISIBLE);
+        } else {
+            filterInfo.setVisibility(View.GONE);
+        }
+
+        emptyV.setVisibility(shown.isEmpty() ? View.VISIBLE : View.GONE);
+        emptyV.setText(active && inMonth > 0 ? "No entries match your filters." : "Nothing logged this month yet.");
+
+        Collections.sort(shown, new Comparator<Expense>() {
             @Override
             public int compare(Expense a, Expense b) {
                 int c = b.date.compareTo(a.date);
@@ -304,17 +583,24 @@ public class MainActivity extends Activity {
             }
         });
 
+        Map<String, Long> dayTotals = new HashMap<>();
+        for (Expense e : shown) {
+            Long cur = dayTotals.get(e.date);
+            dayTotals.put(e.date, (cur == null ? 0L : cur) + e.cents);
+        }
+
+        List<Categories.Cat> known = Categories.load(this);
         String lastDate = null;
-        for (final Expense e : month) {
+        for (final Expense e : shown) {
             if (!e.date.equals(lastDate)) {
                 lastDate = e.date;
-                Long dayTotal = s.byDate.get(e.date);
                 LinearLayout head = new LinearLayout(this);
                 head.setOrientation(LinearLayout.HORIZONTAL);
                 head.setPadding(0, dp(14), 0, dp(2));
                 head.addView(text(Dates.dayLabel(e.date), 13, getColor(R.color.subtext), true),
                         new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                head.addView(text(Money.fmt(dayTotal == null ? 0 : dayTotal), 13, getColor(R.color.subtext), true));
+                Long dt = dayTotals.get(e.date);
+                head.addView(text(Money.fmt(dt == null ? 0 : dt), 13, getColor(R.color.subtext), true));
                 entries.addView(head);
             }
 
@@ -322,6 +608,7 @@ public class MainActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(0, dp(8), 0, dp(8));
+            row.addView(Ui.dot(this, Categories.colorOf(known, e.cat), 10));
 
             LinearLayout left = new LinearLayout(this);
             left.setOrientation(LinearLayout.VERTICAL);
@@ -332,12 +619,65 @@ public class MainActivity extends Activity {
             row.addView(left, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             row.addView(text(Money.fmt(e.cents), 15, getColor(R.color.text), true));
 
+            row.setOnClickListener(v -> editEntry(e));
             row.setOnLongClickListener(v -> {
                 confirmDelete(e);
                 return true;
             });
             entries.addView(row);
         }
+    }
+
+    /* ---------- edit / remove ---------- */
+
+    private void editEntry(final Expense e) {
+        final EditText amt = Ui.field(this, "Amount", Ui.DECIMAL, Ui.plain(e.cents));
+        List<String> names = Categories.names(this);
+        if (!names.contains(e.cat)) {
+            names.add(e.cat);
+        }
+        final Spinner cat = Ui.spinner(this, names, e.cat);
+        final String[] date = {e.date};
+        final Button dateB = new Button(this);
+        dateB.setAllCaps(false);
+        dateB.setText("Date: " + Dates.dayLabel(date[0]));
+        dateB.setOnClickListener(v -> Ui.pickDate(this, date[0], d -> {
+            date[0] = d;
+            dateB.setText("Date: " + Dates.dayLabel(d));
+        }));
+        final EditText n = Ui.field(this, "Note (optional)",
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, e.note);
+
+        LinearLayout form = Ui.form(this);
+        form.addView(amt);
+        form.addView(cat);
+        form.addView(dateB);
+        form.addView(n);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(form);
+
+        final AlertDialog d = new AlertDialog.Builder(this)
+                .setTitle("Edit entry")
+                .setView(sv)
+                .setPositiveButton("Save", null)
+                .setNeutralButton("Remove", (dlg, w) -> confirmDelete(e))
+                .setNegativeButton("Cancel", null)
+                .create();
+        d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            long cents = Ui.parseCents(amt.getText());
+            if (cents <= 0) {
+                Toast.makeText(this, "Enter an amount greater than zero", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String c = (String) cat.getSelectedItem();
+            if (c == null) {
+                return;
+            }
+            ExpenseStore.update(this, new Expense(e.id, cents, c, date[0], n.getText().toString().trim()));
+            d.dismiss();
+            refresh();
+        }));
+        d.show();
     }
 
     private void confirmDelete(final Expense e) {
@@ -352,18 +692,13 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    /* ---------- helpers ---------- */
+
     private TextView text(String s, int sp, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(sp);
-        t.setTextColor(color);
-        if (bold) {
-            t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
-        }
-        return t;
+        return Ui.text(this, s, sp, color, bold);
     }
 
     private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
+        return Ui.dp(this, v);
     }
 }

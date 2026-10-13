@@ -37,6 +37,15 @@
                 android:text="Theme"
                 android:textSize="15sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/more_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:text="More"
+                android:textSize="15sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <!-- Month switcher -->
@@ -101,6 +110,13 @@
                 android:text="spent this month"
                 android:textColor="@color/subtext"
                 android:textSize="13sp" />
+
+            <LinearLayout
+                android:id="@+id/budget_box"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -287,6 +303,31 @@
                 android:orientation="vertical" />
         </LinearLayout>
 
+        <!-- Top spending -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Where it went"
+                android:textColor="@color/text"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/top_box"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="vertical" />
+        </LinearLayout>
+
         <!-- Entries -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -308,9 +349,67 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Press and hold an entry to remove it"
+                android:text="Tap an entry to edit it. Press and hold to remove it."
                 android:textColor="@color/subtext"
                 android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/search"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Search notes, categories or amounts"
+                android:imeOptions="actionDone"
+                android:inputType="text"
+                android:maxLines="1"
+                android:textColor="@color/text"
+                android:textColorHint="@color/subtext"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <Spinner
+                    android:id="@+id/filter_cat"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1.5" />
+
+                <EditText
+                    android:id="@+id/min_amt"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Min $"
+                    android:inputType="numberDecimal"
+                    android:maxLines="1"
+                    android:textColor="@color/text"
+                    android:textColorHint="@color/subtext"
+                    android:textSize="14sp" />
+
+                <EditText
+                    android:id="@+id/max_amt"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Max $"
+                    android:inputType="numberDecimal"
+                    android:maxLines="1"
+                    android:textColor="@color/text"
+                    android:textColorHint="@color/subtext"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/filter_info"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/subtext"
+                android:textSize="12sp"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/empty_v"

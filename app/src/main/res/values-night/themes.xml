@@ -7,4 +7,9 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:textColor">@color/text</item>
     </style>
+
+    <style name="QuickTheme" parent="android:Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@drawable/bg_card</item>
+        <item name="android:windowSoftInputMode">stateVisible|adjustResize</item>
+    </style>
 </resources>
