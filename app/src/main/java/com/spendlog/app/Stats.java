@@ -14,6 +14,13 @@ final class Stats {
     long[] byDay;                       // index 0 = day 1
     Map<String, Long> byCategory = new LinkedHashMap<>();
     Map<String, Long> byDate = new HashMap<>();
+    Expense biggest;
+    int count;
+
+    static int daysLeftInMonth() {
+        Calendar n = Calendar.getInstance();
+        return Dates.daysInMonth(n) - n.get(Calendar.DAY_OF_MONTH) + 1;
+    }
 
     static Map<String, Long> sumByDate(List<Expense> all) {
         Map<String, Long> m = new HashMap<>();
@@ -44,6 +51,10 @@ final class Stats {
             }
             if (e.date.startsWith(ym)) {
                 s.monthTotal += e.cents;
+                s.count++;
+                if (s.biggest == null || e.cents > s.biggest.cents) {
+                    s.biggest = e;
+                }
                 int day = Integer.parseInt(e.date.substring(8, 10));
                 if (day >= 1 && day <= days) {
                     s.byDay[day - 1] += e.cents;

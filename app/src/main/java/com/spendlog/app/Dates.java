@@ -39,6 +39,14 @@ final class Dates {
         return c.getActualMaximum(Calendar.DAY_OF_MONTH);
     }
 
+    /** Moves a "yyyy-MM" string by the given number of months. */
+    static String shiftYm(String ym, int delta) {
+        int y = Integer.parseInt(ym.substring(0, 4));
+        int m = Integer.parseInt(ym.substring(5, 7));
+        int total = y * 12 + (m - 1) + delta;
+        return String.format(Locale.US, "%04d-%02d", total / 12, total % 12 + 1);
+    }
+
     static String monthLabel(Calendar c) {
         return new SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(c.getTime());
     }
