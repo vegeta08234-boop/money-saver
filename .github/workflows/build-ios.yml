@@ -1,0 +1,94 @@
+name: Build iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/build-ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build for simulator (compile check)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project SpendLog.xcodeproj \
+            -scheme SpendLog \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/build-sim.log"
+
+      - name: Build unsigned device IPA
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project SpendLog.xcodeproj \
+            -scheme SpendLog \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build-dev \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" 2>&1 | tee "$RUNNER_TEMP/build-dev.log"
+          rm -rf Payload && mkdir Payload
+          cp -R build-dev/Build/Products/Release-iphoneos/SpendLog.app Payload/
+          zip -qry SpendLog.ipa Payload
+
+      - name: Screenshots in simulator
+        working-directory: ios
+        continue-on-error: true
+        run: |
+          mkdir -p shots
+          UDID=$(xcrun simctl list devices available | grep -m1 "iPhone" | grep -oE '[0-9A-F-]{36}')
+          echo "Using $UDID"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          APP=build-sim/Build/Products/Debug-iphonesimulator/SpendLog.app
+          xcrun simctl install "$UDID" "$APP"
+          shoot() {
+            xcrun simctl terminate "$UDID" com.spendlog.app 2>/dev/null || true
+            xcrun simctl launch "$UDID" com.spendlog.app -seedDemo YES "${@:2}"
+            sleep 5
+            xcrun simctl io "$UDID" screenshot "shots/$1.png"
+          }
+          shoot home
+          shoot budgets -startDestination budgets
+          shoot add -startDestination add
+          shoot settings -startDestination settings
+          shoot autoadd -startDestination autoAdd
+
+      - name: Publish to release
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd ios
+          cat "$RUNNER_TEMP"/build-*.log > build-log.txt 2>/dev/null || echo "no logs" > build-log.txt
+          tail -c 400000 build-log.txt > build-log-tail.txt
+          gh release view ios-latest >/dev/null 2>&1 || gh release create ios-latest --title "iOS build" --notes "Latest iOS build" --prerelease
+          FILES="build-log-tail.txt"
+          [ -f SpendLog.ipa ] && FILES="$FILES SpendLog.ipa"
+          for f in shots/*.png; do [ -f "$f" ] && FILES="$FILES $f"; done
+          gh release upload ios-latest $FILES --clobber
