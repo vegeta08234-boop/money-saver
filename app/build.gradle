@@ -10,13 +10,27 @@ android {
         applicationId "com.spendlog.app"
         minSdk 24
         targetSdk 34
-        versionCode 3
-        versionName "1.2"
+        versionCode 4
+        versionName "1.3"
+    }
+
+    // One fixed key for every build, so a new version installs over the old one and keeps its data.
+    signingConfigs {
+        shared {
+            storeFile file('spendlog.keystore')
+            storePassword 'spendlog123'
+            keyAlias 'spendlog'
+            keyPassword 'spendlog123'
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.shared
+        }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.shared
         }
     }
 
